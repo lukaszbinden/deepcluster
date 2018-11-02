@@ -64,10 +64,11 @@ class ReassignedDataset(data.Dataset):
             tuple: (image, pseudolabel) where pseudolabel is the cluster of index datapoint
         """
         path, pseudolabel = self.imgs[index]
-        img = pil_loader(path)
-        if self.transform is not None:
-            img = self.transform(img)
-        return img, pseudolabel
+        #img = pil_loader(path)
+        #if self.transform is not None:
+        #    img = self.transform(img)
+
+        return None, path, pseudolabel
 
     def __len__(self):
         return len(self.imgs)
@@ -137,17 +138,18 @@ def cluster_assign(images_lists, dataset):
         image_indexes.extend(images)
         pseudolabels.extend([cluster] * len(images))
 
-    normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                                     std=[0.229, 0.224, 0.225])
-    t = transforms.Compose([transforms.RandomResizedCrop(224),
-                            transforms.RandomHorizontalFlip(),
-                            transforms.ToTensor(),
-                            normalize])
+    # normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
+    #                                  std=[0.229, 0.224, 0.225])
+    # t = transforms.Compose([transforms.RandomResizedCrop(224),
+    #                         transforms.RandomHorizontalFlip(),
+    #                         transforms.ToTensor(),
+    #                         normalize])
+    t = transforms.Compose([transforms.ToTensor()])
 
     return ReassignedDataset(image_indexes, pseudolabels, dataset, t)
 
 
-def run_kmeans(x, nmb_clusters, verbose=False):
+def run_kmeans(x, nmb_clusters, verbose=True):
     """Runs kmeans on 1 GPU.
     Args:
         x: data
