@@ -67,7 +67,7 @@ def main():
     global args
     args = parser.parse_args()
 
-    handle = open("coco_main_out/train_dataset.obj", "rb")
+    handle = open("main_coco_out/train_dataset.obj", "rb")
     train_dataset = pickle.load(handle)
 
     train_dataloader = torch.utils.data.DataLoader(
@@ -78,7 +78,7 @@ def main():
     )
 
     num_clusters_to_copy = 2
-    basedir = 'coco_clusters'
+    basedir = 'main_coco_out/clusters'
     prev_id = -1
     for i, (path, target) in enumerate(train_dataloader):
         cluster_id = target.data.cpu().numpy()[0]
