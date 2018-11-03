@@ -19,6 +19,6 @@ PYTHON="/home/lz01a008/.conda/envs/faiss/bin/python"
 
 mkdir -p ${EXP}
 
-CUDA_VISIBLE_DEVICES=0 ${PYTHON} main.py ${DIR} --exp ${EXP} --arch ${ARCH} \
+CUDA_VISIBLE_DEVICES=0 ${PYTHON} main_for_coco.py ${DIR} --exp ${EXP} --arch ${ARCH} \
   --resume ${PRE_MODEL} --batch ${BATCH_SIZE} \
   --lr ${LR} --wd ${WD} --k ${K} --sobel --verbose --workers ${WORKERS}
