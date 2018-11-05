@@ -146,92 +146,56 @@ def main():
     # clustering algorithm to use
     deepcluster = clustering.__dict__[args.clustering](args.nmb_cluster)
 
-    # training convnet with DeepCluster
-    for epoch in range(args.start_epoch, args.epochs):
-        end = time.time()
+    end = time.time()
 
-        # remove head
-        model.top_layer = None
-        model.classifier = nn.Sequential(*list(model.classifier.children())[:-1])
+    # remove head
+    model.top_layer = None
+    model.classifier = nn.Sequential(*list(model.classifier.children())[:-1])
 
-        ######################################################################
+    ######################################################################
 
-        # get the features for the whole dataset
-        print('compute_features...')
-        features = compute_features(dataloader, model, len(dataset))
-        print('len(features).:', len(features))
+    # get the features for the whole dataset
+    print('compute_features...')
+    features = compute_features(dataloader, model, len(dataset))
+    print('features.shape.:', features.shape)
 
-        # cluster the features
-        print('deepcluster.cluster...')
-        clustering_loss = deepcluster.cluster(features, verbose=args.verbose)
+    # cluster the features
+    print('deepcluster.cluster...')
+    deepcluster.cluster(features, verbose=args.verbose)
 
-        # assign pseudo-labels
-        print('clustering.cluster_assign...')
-        train_dataset = clustering.cluster_assign(deepcluster.images_lists,
-                                                  dataset.imgs)
+    # assign pseudo-labels
+    print('clustering.cluster_assign...')
+    train_dataset = clustering.cluster_assign(deepcluster.images_lists,
+                                              dataset.imgs)
 
-        print('pickle dataset...')
-        handle = open(os.path.join(args.exp, "train_dataset.obj"), "wb")
-        pickle.dump(train_dataset, handle)
-        handle.close()
+    # print('>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>')
+    # print('cluster_0: %s' % str(deepcluster.images_lists[0]))
+    # assert len(features) == len(dataset.imgs)
+    # for i in deepcluster.images_lists[0]:
+    #     print(i, '---', np.linalg.norm(features[i]))
+    # print('>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>')
 
-        end = True
-        if end:
-            print('done.')
-            break
+    print('number of clusters computed: %d' % len(deepcluster.images_lists))
 
-        ######################################################################
+    print('pickle clustering objects...')
+    handle = open(os.path.join(args.exp, "features.obj"), "wb")
+    pickle.dump(features, handle)
+    handle.close()
 
-        # uniformely sample per target
-        sampler = UnifLabelSampler(int(args.reassign * len(train_dataset)),
-                                   deepcluster.images_lists)
+    handle = open(os.path.join(args.exp, "train_dataset.obj"), "wb")
+    pickle.dump(train_dataset, handle)
+    handle.close()
 
-        train_dataloader = torch.utils.data.DataLoader(
-            train_dataset,
-            batch_size=args.batch,
-            num_workers=args.workers,
-            sampler=sampler,
-            pin_memory=True,
-        )
+    handle = open(os.path.join(args.exp, "images_lists.obj"), "wb")
+    pickle.dump(deepcluster.images_lists, handle)
+    handle.close()
 
-        # set last fully connected layer
-        mlp = list(model.classifier.children())
-        mlp.append(nn.ReLU(inplace=True).cuda())
-        model.classifier = nn.Sequential(*mlp)
-        model.top_layer = nn.Linear(fd, len(deepcluster.images_lists))
-        model.top_layer.weight.data.normal_(0, 0.01)
-        model.top_layer.bias.data.zero_()
-        model.top_layer.cuda()
+    handle = open(os.path.join(args.exp, "dataset.imgs.obj"), "wb")
+    pickle.dump(dataset.imgs, handle)
+    handle.close()
 
-        # train network with clusters as pseudo-labels
-        end = time.time()
-        loss = train(train_dataloader, model, criterion, optimizer, epoch)
-
-        # print log
-        if args.verbose:
-            print('###### Epoch [{0}] ###### \n'
-                  'Time: {1:.3f} s\n'
-                  'Clustering loss: {2:.3f} \n'
-                  'ConvNet loss: {3:.3f}'
-                  .format(epoch, time.time() - end, clustering_loss, loss))
-            try:
-                nmi = normalized_mutual_info_score(
-                    clustering.arrange_clustering(deepcluster.images_lists),
-                    clustering.arrange_clustering(cluster_log.data[-1])
-                )
-                print('NMI against previous assignment: {0:.3f}'.format(nmi))
-            except IndexError:
-                pass
-            print('####################### \n')
-        # save running checkpoint
-        torch.save({'epoch': epoch + 1,
-                    'arch': args.arch,
-                    'state_dict': model.state_dict(),
-                    'optimizer' : optimizer.state_dict()},
-                   os.path.join(args.exp, 'checkpoint.pth.tar'))
-
-        # save cluster assignments
-        cluster_log.log(deepcluster.images_lists)
+    print('done.')
+    ########################################################################
 
 
 def train(loader, model, crit, opt, epoch):

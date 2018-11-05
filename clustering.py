@@ -86,7 +86,7 @@ def preprocess_features(npdata, pca=256):
     npdata =  npdata.astype('float32')
 
     # Apply PCA-whitening with Faiss
-    mat = faiss.PCAMatrix (ndim, pca, eigen_power=-0.5)
+    mat = faiss.PCAMatrix(ndim, pca, eigen_power=-0.5)
     mat.train(npdata)
     assert mat.is_trained
     npdata = mat.apply_py(npdata)
@@ -135,6 +135,7 @@ def cluster_assign(images_lists, dataset):
     pseudolabels = []
     image_indexes = []
     for cluster, images in enumerate(images_lists):
+        print(cluster, '-->', len(images))
         image_indexes.extend(images)
         pseudolabels.extend([cluster] * len(images))
 
@@ -202,6 +203,7 @@ class Kmeans:
 
         # PCA-reducing, whitening and L2-normalization
         xb = preprocess_features(data)
+        print('features.shape after PCA: %s' % str(xb.shape))
 
         # cluster the data
         I, loss = run_kmeans(xb, self.k, verbose)
