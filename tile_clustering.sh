@@ -6,8 +6,8 @@
 #
 #!/bin/bash
 
-DIR="coco/2017_training/clust_imgs_224x224"
-EXP="main_coco_out/tile_clustering"
+DIR="coco/2017_training/clust_imgs_224x224_4285"
+EXP="main_coco_out/tile_clustering_4285"
 KNN="10"
 ARCH="alexnet"
 LR=0.05
