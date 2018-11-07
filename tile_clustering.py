@@ -77,22 +77,10 @@ def main():
     if args.verbose:
         print('Architecture: {}'.format(args.arch))
     model = models.__dict__[args.arch](sobel=args.sobel)
-    fd = int(model.top_layer.weight.size()[1])
     model.top_layer = None
     model.features = torch.nn.DataParallel(model.features)
     model.cuda()
     cudnn.benchmark = True
-
-    # create optimizer
-    optimizer = torch.optim.SGD(
-        filter(lambda x: x.requires_grad, model.parameters()),
-        lr=args.lr,
-        momentum=args.momentum,
-        weight_decay=10**args.wd,
-    )
-
-    # define loss function
-    criterion = nn.CrossEntropyLoss().cuda()
 
     # optionally resume from a checkpoint
     if args.resume:
@@ -108,7 +96,6 @@ def main():
             for key in keys_to_del:
                 del checkpoint['state_dict'][key]
             model.load_state_dict(checkpoint['state_dict'])
-            # optimizer.load_state_dict(checkpoint['optimizer'])
             print("=> loaded checkpoint '{}' (epoch {})"
                   .format(args.resume, checkpoint['epoch']))
         else:
@@ -118,9 +105,6 @@ def main():
     exp_check = os.path.join(args.exp, 'checkpoints')
     if not os.path.isdir(exp_check):
         os.makedirs(exp_check)
-
-    # creating cluster assignments log
-    cluster_log = Logger(os.path.join(args.exp, 'clusters'))
 
     # preprocessing of data
     normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
@@ -139,7 +123,7 @@ def main():
     image_folder = os.path.join(args.data, tile_name)
     print('image folder: %s...' % image_folder)
     dataset = datasets.ImageFolder(image_folder, transform=transforms.Compose(tra))
-    if args.verbose: print('Load dataset: {0:.2f} s'.format(time.time() - end))
+    print('Load dataset: {0:.2f} s'.format(time.time() - end))
     print('len(dataset)...............:', len(dataset))
     print('DataLoader...')
     dataloader = torch.utils.data.DataLoader(dataset,
@@ -150,8 +134,6 @@ def main():
 
     # clustering algorithm to use
     deepcluster = clustering.__dict__[args.clustering](args.nmb_cluster)
-
-    end = time.time()
 
     # remove head
     model.top_layer = None
@@ -174,54 +156,59 @@ def main():
     print('number of clusters computed: %d' % len(deepcluster.images_lists))
 
     # cf. also coco_knn.py
-    k = args.knn
+    k = int(args.knn)
     tile_to_10nn = {}
+    d = features.shape[1]  # dimension
 
-    for j, cluster in enumerate(deepcluster.images_lists):
-        print('processing cluster %d...' % j)
+    for cluster_index, cluster in enumerate(deepcluster.images_lists):
+        print('processing cluster %d -->' % (cluster_index + 1))
+        start = time.time()
         #####################################################
         # calculate 10-NN for each feature of current cluster
-        feature_ids_cluster = cluster
+        cluster_feature_ids = cluster
 
         res = faiss.StandardGpuResources()
         flat_config = faiss.GpuIndexFlatConfig()
         flat_config.useFloat16 = False
         flat_config.device = 0
-        d = features.shape[1]  # dimension
         index = faiss.GpuIndexFlatL2(res, d, flat_config)
 
-        num_features = len(feature_ids_cluster)
-        features_cluster = np.zeros((num_features, features.shape[1])).astype('float32')
-        for _, i in enumerate(feature_ids_cluster):
-            # print(j, '-', i)
-            features_cluster[j] = features[i]
+        num_features = len(cluster_feature_ids)
+        cluster_features = np.zeros((num_features, features.shape[1])).astype('float32')
+        for ind, id in enumerate(cluster_feature_ids):
+            # print(ind, '-', id)
+            cluster_features[ind] = features[id]
 
-        print('features_cluster.shape = %s' % str(features_cluster.shape))
-        index.add(features_cluster)
+        print('cluster_features.shape = %s' % str(cluster_features.shape))
+        index.add(cluster_features)
 
-        D, I = index.search(features_cluster, k + 1)
-        assert I.shape[0] == features_cluster.shape[0]
+        l2_knn, knn = index.search(cluster_features, k + 1)  # +1 because 1st is feature itself
+        assert knn.shape[0] == cluster_features.shape[0]
 
         for feature_id in range(num_features):
-            id_into_dataset = feature_ids_cluster[I[feature_id][i]]
-            img_path = dataset.imgs[id_into_dataset][0]
-            name = os.path.basename(img_path).replace('_' + tile_name, '')
-            for i in range(k + 1):
-                if i == 0:
+            for id_nn in range(k + 1):  # id_nn: id of current nearest neighbor
+                id_into_dataset = cluster_feature_ids[knn[feature_id][id_nn]]
+                img_path = dataset.imgs[id_into_dataset][0]
+                name = os.path.basename(img_path).replace('_' + tile_name, '')
+                if id_nn == 0:
                     feature_img_name = name
                     knn_list = []
-                    assert D[feature_id][0] < 1  # should be 0 or close
+                    assert l2_knn[feature_id][0] < 1  # should be 0 or close
                 else:
-                    l2_dist = D[feature_id][i]
+                    l2_dist = l2_knn[feature_id][id_nn]
                     tuple = (name, l2_dist)
                     knn_list.append(tuple)
+            assert len(knn_list) == k
             assert feature_img_name not in tile_to_10nn
             tile_to_10nn[feature_img_name] = knn_list
+        print(('processing cluster %d <-- [{0:.2f}s]' % (cluster_index + 1)).format(time.time() - start))
+
     assert len(tile_to_10nn) == len(dataset.imgs)
 
-    print('pickle map object...')
     out_dir = os.path.join(args.exp, tile_name)
-    handle = open(os.path.join(out_dir, tile_name + "_" + args.knn + "nn.obj"), "wb")
+    file_out = os.path.join(out_dir, tile_name + "_" + args.knn + "nn.obj")
+    print('pickle map object to \'%s\'...' % file_out)
+    handle = open(file_out, "wb")
     pickle.dump(tile_to_10nn, handle)
     handle.close()
 
@@ -230,33 +217,32 @@ def main():
 
 
 def compute_features(dataloader, model, N):
-    if args.verbose:
-        print('Compute features')
     batch_time = AverageMeter()
     end = time.time()
     model.eval()
     # discard the label information in the dataloader
     for i, (input_tensor, _) in enumerate(dataloader):
-        input_var = torch.autograd.Variable(input_tensor.cuda(), volatile=True)
-        aux = model(input_var).data.cpu().numpy()
+        with torch.no_grad():
+            input_var = torch.autograd.Variable(input_tensor.cuda())
+            aux = model(input_var).data.cpu().numpy()
 
-        if i == 0:
-            features = np.zeros((N, aux.shape[1])).astype('float32')
+            if i == 0:
+                features = np.zeros((N, aux.shape[1])).astype('float32')
 
-        if i < len(dataloader) - 1:
-            features[i * args.batch: (i + 1) * args.batch] = aux.astype('float32')
-        else:
-            # special treatment for final batch
-            features[i * args.batch:] = aux.astype('float32')
+            if i < len(dataloader) - 1:
+                features[i * args.batch: (i + 1) * args.batch] = aux.astype('float32')
+            else:
+                # special treatment for final batch
+                features[i * args.batch:] = aux.astype('float32')
 
-        # measure elapsed time
-        batch_time.update(time.time() - end)
-        end = time.time()
+            # measure elapsed time
+            batch_time.update(time.time() - end)
+            end = time.time()
 
-        if args.verbose and (i % 200) == 0:
-            print('{0} / {1}\t'
-                  'Time: {batch_time.val:.3f} ({batch_time.avg:.3f})'
-                  .format(i, len(dataloader), batch_time=batch_time))
+            if args.verbose and (i % 200) == 0:
+                print('{0} / {1}\t'
+                      'Time: {batch_time.val:.3f} ({batch_time.avg:.3f})'
+                      .format(i, len(dataloader), batch_time=batch_time))
     return features
 
 

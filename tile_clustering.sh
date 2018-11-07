@@ -6,7 +6,6 @@
 #
 #!/bin/bash
 
-TILE="t1"
 DIR="coco/2017_training/clust_imgs_224x224"
 EXP="main_coco_out/tile_clustering"
 KNN="10"
@@ -21,6 +20,13 @@ PYTHON="/home/lz01a008/.conda/envs/faiss/bin/python"
 
 mkdir -p ${EXP}
 
-CUDA_VISIBLE_DEVICES=0 ${PYTHON} main_for_coco.py ${DIR} ${TILE} ${KNN} --exp ${EXP} --arch ${ARCH} \
-  --resume ${PRE_MODEL} --batch ${BATCH_SIZE} \
-  --lr ${LR} --wd ${WD} --k ${K} --sobel --verbose --workers ${WORKERS}
+TILES='t1 t2 t3 t4'
+
+for TILE in ${TILES}
+do
+    echo "run for "${TILE}"..."
+    CUDA_VISIBLE_DEVICES=0 ${PYTHON} tile_clustering.py ${DIR} ${TILE} ${KNN} --exp ${EXP} --arch ${ARCH} \
+        --resume ${PRE_MODEL} --batch ${BATCH_SIZE} \
+        --lr ${LR} --wd ${WD} --k ${K} --sobel --verbose --workers ${WORKERS}
+done
+echo "done."
