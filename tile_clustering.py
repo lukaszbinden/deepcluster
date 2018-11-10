@@ -68,6 +68,10 @@ def main():
     global args
     args = parser.parse_args()
 
+    print('args: >>>>>>>>>')
+    print(args)
+    print('<<<<<<<<<<<<<<<')
+
     # fix random seeds
     torch.manual_seed(args.seed)
     torch.cuda.manual_seed_all(args.seed)
@@ -109,7 +113,7 @@ def main():
     # preprocessing of data
     normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                      std=[0.229, 0.224, 0.225])
-    # tra = [transforms.Resize(256),
+    # tra = [transforms.Resize(224),
     #        transforms.CenterCrop(224),
     #       transforms.ToTensor(),
     #       normalize]
@@ -121,7 +125,7 @@ def main():
     end = time.time()
     tile_name = args.tile
     image_folder = os.path.join(args.data, tile_name)
-    print('image folder: %s...' % image_folder)
+    print('image folder: %s' % image_folder)
     dataset = datasets.ImageFolder(image_folder, transform=transforms.Compose(tra))
     print('Load dataset: {0:.2f} s'.format(time.time() - end))
     print('len(dataset)...............:', len(dataset))
@@ -144,6 +148,7 @@ def main():
     # get the features for the whole dataset
     print('compute_features...')
     features = compute_features(dataloader, model, len(dataset))
+    print('...compute_features.')
     print('features.shape.:', features.shape)
 
     # cluster the features
@@ -151,12 +156,15 @@ def main():
     deepcluster.cluster(features, verbose=args.verbose)
 
     # assign pseudo-labels
-    print('clustering.cluster_assign...')
-    _ = clustering.cluster_assign(deepcluster.images_lists, dataset.imgs)
+    # print('clustering.cluster_assign...')
+    # _ = clustering.cluster_assign(deepcluster.images_lists, dataset.imgs)
     print('number of clusters computed: %d' % len(deepcluster.images_lists))
 
     # cf. also coco_knn.py
     k = int(args.knn)
+
+    check_small_clusters(deepcluster, k)
+
     tile_to_10nn = {}
     d = features.shape[1]  # dimension
 
@@ -193,13 +201,22 @@ def main():
                 if id_nn == 0:
                     feature_img_name = name
                     knn_list = []
-                    assert l2_knn[feature_id][0] < 1  # should be 0 or close
                 else:
                     l2_dist = l2_knn[feature_id][id_nn]
                     tuple = (name, l2_dist)
                     knn_list.append(tuple)
             assert len(knn_list) == k
-            assert feature_img_name not in tile_to_10nn
+            if feature_img_name in tile_to_10nn:
+                # special case because of duplicate images in COCO dataset (e.g. 000000000927.jpg und 000000341448.jpg)
+                assert knn[feature_id][0] == knn[knn[feature_id][1]][0] \
+                       and knn[feature_id][1] == knn[knn[feature_id][1]][1], '\n%d\n%s\n%s\n%s' % (feature_id, str(knn[feature_id]), str(l2_knn[feature_id]), str(knn))
+                id_into_dataset = cluster_feature_ids[knn[feature_id][1]]
+                img_path = dataset.imgs[id_into_dataset][0]
+                name_repl = os.path.basename(img_path).replace('_' + tile_name, '')
+                print('duplicate images detected, replacing %s with %s...' % (feature_img_name, name_repl))
+                feature_img_name = name_repl
+            assert feature_img_name not in tile_to_10nn, '%s already in tile_to_10nn (size: %d, featured_id: %d)' % \
+                                                         (feature_img_name, len(tile_to_10nn), feature_id)
             tile_to_10nn[feature_img_name] = knn_list
         print(('processing cluster %d <-- [{0:.2f}s]' % (cluster_index + 1)).format(time.time() - start))
 
@@ -214,6 +231,17 @@ def main():
 
     print('done.')
     ########################################################################
+
+
+def check_small_clusters(deepcluster, k):
+    small_clusters = []
+    for cluster_index, cluster in enumerate(deepcluster.images_lists):
+        if len(cluster) < k + 1:
+            small_clusters.append((cluster_index, len(cluster)))
+    if len(small_clusters) > 0:
+        print('some clusters have fewer points than k = %d neighbors, perhaps decrease nmb_cluster\n clusters: %s'
+              % (k, str(small_clusters)))
+        assert 1 == 2, 'abort'
 
 
 def compute_features(dataloader, model, N):

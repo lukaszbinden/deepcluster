@@ -12,11 +12,11 @@ KNN="10"
 ARCH="alexnet"
 LR=0.05
 WD=-5
-K=3000
+K=1700
 PRE_MODEL="deepcluster_models/alexnet/checkpoint.pth.tar"
 WORKERS=1
 BATCH_SIZE=1
-PYTHON="/home/lz01a008/.conda/envs/faiss/bin/python"
+PYTHON="/home/lz01a008/.conda/envs/faiss/bin/python -u"
 
 mkdir -p ${EXP}
 
