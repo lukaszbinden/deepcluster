@@ -87,9 +87,11 @@ def main():
     images_lists = pickle.load(handle)
     handle.close()
 
-    handle = open(os.path.join(args.exp, "dataset.imgs.obj"), "rb")
+    handle = open(os.path.join(args.exp, "dataset_imgs.obj"), "rb")
     dataset_imgs = pickle.load(handle)
     handle.close()
+
+    print('num clusters: %d' % len(images_lists))
 
     #####################################################
     # calculate 10-NN for each feature of 1st cluster
@@ -120,10 +122,12 @@ def main():
 
     k = args.knn
     print('searching for %d-NN for each feature in cluster...' % k)
-    _, I = index.search(features_cluster_0[:1], k + 1)
-    print('results: ')
+    D, I = index.search(features_cluster_0[:1], k + 1)
+    print('results I: ')
     print(I)
-    print('%d NN images for feature %s: ' % (k, str(dataset_imgs[feature_ids_cluster_0[0]])))
+    print('results D: ')
+    print(D)
+    print('%d NN images for 1st feature %s: ' % (k, str(dataset_imgs[feature_ids_cluster_0[0]])))
     for i in range(k+1):
         print('index into cluster_0: %d' % I[0][i])
         id_into_dataset = feature_ids_cluster_0[I[0][i]]

@@ -190,7 +190,7 @@ def main():
     pickle.dump(deepcluster.images_lists, handle)
     handle.close()
 
-    handle = open(os.path.join(args.exp, "dataset.imgs.obj"), "wb")
+    handle = open(os.path.join(args.exp, "dataset_imgs.obj"), "wb")
     pickle.dump(dataset.imgs, handle)
     handle.close()
 
