@@ -6,23 +6,20 @@
 #
 #!/bin/bash
 
-DIR="coco/2017_training/version/v6/clustering"
-EXP="main_coco_out/cluster_centers/2017_training/version/v5"
-KNN="10"
 LR=0.05
 WD=-5
-K=3000
+K=2000
 WORKERS=1
 BATCH_SIZE=1
 PYTHON="/home/lz01a008/.conda/envs/faiss/bin/python -u"
-FEATURES="<</home/lz01a008/git/deepcluster/features_v5.obj>>"
-
-mkdir -p ${EXP}
-
+FEATURES_RAW="/home/lz01a008/src/logs/20190511_161149/features_raw.obj"
+FEATURES_FN="/home/lz01a008/src/logs/20190511_161149/features_filenames.obj"
 
 
-CUDA_VISIBLE_DEVICES=0 ${PYTHON} knowledge_transfer_extract_cluster_centers.py ${DIR} ${TILE} --exp ${EXP} \
+
+
+CUDA_VISIBLE_DEVICES=0 ${PYTHON} knowledge_transfer_extract_cluster_centers.py \
     --batch ${BATCH_SIZE} \
-    --lr ${LR} --wd ${WD} --k ${K} --features ${FEATURES} --sobel --verbose --workers ${WORKERS} > knowledge_transfer_extract_cluster_centers.log
+    --lr ${LR} --wd ${WD} --k ${K} --features ${FEATURES_RAW} --features_fn ${FEATURES_FN} --sobel --verbose --workers ${WORKERS} > knowledge_transfer_extract_cluster_centers.log
 
 echo "done."

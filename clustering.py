@@ -51,7 +51,8 @@ class ReassignedDataset(data.Dataset):
         label_to_idx = {label: idx for idx, label in enumerate(set(pseudolabels))}
         images = []
         for j, idx in enumerate(image_indexes):
-            path = dataset[idx][0]
+            #path = dataset[idx][0]
+            path = dataset[idx].decode("ASCII")
             pseudolabel = label_to_idx[pseudolabels[j]]
             images.append((path, pseudolabel))
         return images
@@ -159,6 +160,7 @@ def run_kmeans(x, nmb_clusters, verbose=True):
         list: ids of data in each cluster
     """
     n_data, d = x.shape
+    print("x.shape:", x.shape)
 
     # faiss implementation of k-means
     clus = faiss.Clustering(d, nmb_clusters)
@@ -176,6 +178,20 @@ def run_kmeans(x, nmb_clusters, verbose=True):
     losses = faiss.vector_to_array(clus.obj)
     if verbose:
         print('k-means loss evolution: {0}'.format(losses))
+        centroids = faiss.vector_float_to_array(clus.centroids)
+        print("centroids:")
+        # print(clus.centroids)
+        print("type:", type(centroids))
+        print("len:", len(centroids))
+        print("shape:", centroids.shape)
+        # print(centroids)
+        centroids_rs = centroids.reshape(nmb_clusters, d)
+        print("centroids_reshape:")
+        print("type:", type(centroids_rs))
+        print("len:", len(centroids_rs))
+        print("shape:", centroids_rs.shape)
+        #print(centroids_rs)
+        #assert 1 == 0
 
     return [int(n[0]) for n in I], losses[-1]
 
@@ -221,6 +237,7 @@ def make_adjacencyW(I, D, sigma):
     """Create adjacency matrix with a Gaussian kernel.
     Args:
         I (numpy array): for each vertex the ids to its nnn linked vertices
+                  + first column of identity.
                   + first column of identity.
         D (numpy array): for each data the l2 distances to its nnn linked vertices
                   + first column of zeros.
@@ -374,3 +391,4 @@ class PIC():
         if verbose:
             print('pic time: {0:.0f} s'.format(time.time() - end))
         return 0
+

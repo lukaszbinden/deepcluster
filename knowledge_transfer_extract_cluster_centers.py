@@ -29,8 +29,8 @@ from util import AverageMeter, Logger, UnifLabelSampler
 
 parser = argparse.ArgumentParser(description='PyTorch Implementation of DeepCluster')
 
-parser.add_argument('data', metavar='DIR', help='path to dataset')
-parser.add_argument('knn', metavar='KNN', help='which k to use for k-nn')
+# parser.add_argument('data', metavar='DIR', help='path to dataset')
+# parser.add_argument('knn', metavar='KNN', help='which k to use for k-nn')
 # parser.add_argument('--arch', '-a', type=str, metavar='ARCH',
 #                     choices=['alexnet', 'vgg16'], default='alexnet',
 #                     help='CNN architecture (default: alexnet)')
@@ -60,8 +60,9 @@ parser.add_argument('--momentum', default=0.9, type=float, help='momentum (defau
 parser.add_argument('--checkpoints', type=int, default=25000,
                     help='how many iterations between two checkpoints (default: 25000)')
 parser.add_argument('--seed', type=int, default=31, help='random seed (default: 31)')
-parser.add_argument('--exp', type=str, default='', help='path to exp folder')
+# parser.add_argument('--exp', type=str, default='', help='path to exp folder')
 parser.add_argument('--features', type=str, default='', help='path to precomputed features')
+parser.add_argument('--features_fn', type=str, default='', help='path to precomputed features filenames')
 parser.add_argument('--verbose', action='store_true', help='chatty')
 
 
@@ -121,33 +122,16 @@ def main():
 
     ######################################################################
 
-    # TODO: load features from file...
-    # >> > import pickle
-    # >> > handle = open("features.obj", "rb")
-    # >> > features = pickle.load(handle)
-    # >> > handle.close()
-    # >> > len(features)
-    # 135554
-    # >> > features[0]
-    # array([-1.7931477e-04, -1.1597719e-04, -6.2101266e-05, ...,
-    #        -5.3377928e-05, -9.3226976e-05, -3.4468717e-04], dtype=float32)
-    # >> > f0 = features[0]
-    # >> > type(features)
-    # <class 'numpy.ndarray'>
-    # >> > len(f0)
-    # 4096
-    # >> > f1 = features[1]
-    # >> > len(f1)
-    # 4096
-    # >> > exit()
-    # (tensorflow_r1.12)[lz01a008@node13 main_coco_out]$ pwd
-    # /home/lz01a008/git/deepcluster/main_coco_out
-
     # get the features for the whole dataset
     if args.features and os.path.exists(args.features):
         handle = open(args.features, "rb")
         print('load features from filesystem...: %s' % args.features)
         features = pickle.load(handle)
+        print('... loaded.')
+        handle.close()
+        handle = open(args.features_fn, "rb")
+        print('load features_fn from filesystem...: %s' % args.features_fn)
+        features_fn = pickle.load(handle)
         print('... loaded.')
         handle.close()
     else:
@@ -162,124 +146,119 @@ def main():
     print('deepcluster.cluster...')
     deepcluster.cluster(features, verbose=args.verbose)
 
-    abort = True
-    if abort:
-        assert 1==0
+    num_in_clusters = 0
+    for cluster_index, cluster in enumerate(deepcluster.images_lists):
+        print("cluster %d: %d entries." % (cluster_index, len(cluster)))
+        num_in_clusters += len(cluster)
 
     # assign pseudo-labels
-    # print('clustering.cluster_assign...')
-    # _ = clustering.cluster_assign(deepcluster.images_lists, dataset.imgs)
+    print('clustering.cluster_assign...')
+    data = clustering.cluster_assign(deepcluster.images_lists, features_fn)
     print('number of clusters computed: %d' % len(deepcluster.images_lists))
 
-    # cf. also coco_knn.py
-    k = int(args.knn)
-
-    check_small_clusters(deepcluster, k)
-
-    tile_to_10nn = {}
-    d = features.shape[1]  # dimension
-
-    for cluster_index, cluster in enumerate(deepcluster.images_lists):
-        print('processing cluster %d -->' % (cluster_index + 1))
-        start = time.time()
-        #####################################################
-
-        # TODO at work...
-
-
-        # calculate 10-NN for each feature of current cluster
-        cluster_feature_ids = cluster
-
-        res = faiss.StandardGpuResources()
-        flat_config = faiss.GpuIndexFlatConfig()
-        flat_config.useFloat16 = False
-        flat_config.device = 0
-        index = faiss.GpuIndexFlatL2(res, d, flat_config)
-
-        num_features = len(cluster_feature_ids)
-        cluster_features = np.zeros((num_features, features.shape[1])).astype('float32')
-        for ind, id in enumerate(cluster_feature_ids):
-            # print(ind, '-', id)
-            cluster_features[ind] = features[id]
-
-        print('cluster_features.shape = %s' % str(cluster_features.shape))
-        index.add(cluster_features)
-
-        l2_knn, knn = index.search(cluster_features, k + 1)  # +1 because 1st is feature itself
-        assert knn.shape[0] == cluster_features.shape[0]
-
-        for feature_id in range(num_features):
-            for id_nn in range(k + 1):  # id_nn: id of current nearest neighbor
-                id_into_dataset = cluster_feature_ids[knn[feature_id][id_nn]]
-                img_path = dataset.imgs[id_into_dataset][0]
-                name = os.path.basename(img_path).replace('_' + tile_name, '')
-                if id_nn == 0:
-                    feature_img_name = name
-                    knn_list = []
-                else:
-                    l2_dist = l2_knn[feature_id][id_nn]
-                    tuple = (name, l2_dist)
-                    knn_list.append(tuple)
-            assert len(knn_list) == k
-            doAdd = True
-            if feature_img_name in tile_to_10nn:
-                # special case because of duplicate images in COCO dataset (e.g. 000000000927.jpg und 000000341448.jpg)
-                assert knn[feature_id][0] == knn[knn[feature_id][1]][0] \
-                       and knn[feature_id][1] == knn[knn[feature_id][1]][1], '\n%d\n%s\n%s\n%s' % (feature_id, str(knn[feature_id]), str(l2_knn[feature_id]), str(knn))
-                id_into_dataset = cluster_feature_ids[knn[feature_id][1]]
-                img_path = dataset.imgs[id_into_dataset][0]
-                name_repl = os.path.basename(img_path).replace('_' + tile_name, '')
-                print('duplicate images detected, replacing %s with %s...' % (feature_img_name, name_repl))
-                feature_img_name = name_repl
-                if feature_img_name in tile_to_10nn:
-                    print( '%s already in tile_to_10nn (size: %d, featured_id: %d)' % (feature_img_name, len(tile_to_10nn), feature_id)) 
-                    doAdd = False
-
-            if doAdd:
-                assert feature_img_name not in tile_to_10nn, '%s already in tile_to_10nn (size: %d, featured_id: %d)' % \
-                                                         (feature_img_name, len(tile_to_10nn), feature_id)
-                tile_to_10nn[feature_img_name] = knn_list
-            else:
-                print('skip feature %s altogether...' % feature_img_name)
-                doAdd = True
-
-
-
-
-        print(('processing cluster %d <-- [{0:.2f}s]' % (cluster_index + 1)).format(time.time() - start))
-
-
-
-
-
-
-
-
-
-
-
-
-    if len(tile_to_10nn) != len(dataset.imgs):
-        # assert len(tile_to_10nn) == len(dataset.imgs), '%s vs. %s' % (str(len(tile_to_10nn)), str(len(dataset.imgs)))
-        print('len(tile_to_10nn) != len(dataset.imgs): %s vs. %s' % (str(len(tile_to_10nn)), str(len(dataset.imgs))))
-        keys = {}
-        for img_name in tile_to_10nn.keys():
-            keys[img_name] = 1
-        for img_path in dataset.imgs:
-            name = os.path.basename(img_path[0]).replace('_' + tile_name, '')
-            if name in keys:
-                del keys[name]
-            else:
-                print('%s not in tile_to_10nn..' % name)
-        print('state of keys after iteration:')
-        print(keys)
-
-    out_dir = os.path.join(args.exp, tile_name)
-    file_out = os.path.join(out_dir, tile_name + "_" + args.knn + "nn.obj")
-    print('pickle map object to \'%s\'...' % file_out)
+    file_out = os.path.join(os.path.dirname(args.features_fn), "fname_pseudolabel.obj")
+    print('pickle list with pseudolabels to \'%s\'...' % file_out)
     handle = open(file_out, "wb")
-    pickle.dump(tile_to_10nn, handle)
+    pickle.dump(data.imgs, handle)
     handle.close()
+
+    assert num_in_clusters == len(data.imgs)
+
+    print("in total %d tuples pickled." % len(data.imgs))
+
+    # # cf. also coco_knn.py
+    # k = int(args.knn)
+    #
+    # check_small_clusters(deepcluster, k)
+    #
+    # tile_to_10nn = {}
+    # d = features.shape[1]  # dimension
+    #
+    # for cluster_index, cluster in enumerate(deepcluster.images_lists):
+    #     print('processing cluster %d -->' % (cluster_index + 1))
+    #     start = time.time()
+    #     #####################################################
+    #
+    #     # calculate 10-NN for each feature of current cluster
+    #     cluster_feature_ids = cluster
+    #
+    #     res = faiss.StandardGpuResources()
+    #     flat_config = faiss.GpuIndexFlatConfig()
+    #     flat_config.useFloat16 = False
+    #     flat_config.device = 0
+    #     index = faiss.GpuIndexFlatL2(res, d, flat_config)
+    #
+    #     num_features = len(cluster_feature_ids)
+    #     cluster_features = np.zeros((num_features, features.shape[1])).astype('float32')
+    #     for ind, id in enumerate(cluster_feature_ids):
+    #         # print(ind, '-', id)
+    #         cluster_features[ind] = features[id]
+    #
+    #     print('cluster_features.shape = %s' % str(cluster_features.shape))
+    #     index.add(cluster_features)
+    #
+    #     l2_knn, knn = index.search(cluster_features, k + 1)  # +1 because 1st is feature itself
+    #     assert knn.shape[0] == cluster_features.shape[0]
+    #
+    #     for feature_id in range(num_features):
+    #         for id_nn in range(k + 1):  # id_nn: id of current nearest neighbor
+    #             id_into_dataset = cluster_feature_ids[knn[feature_id][id_nn]]
+    #             img_path = dataset.imgs[id_into_dataset][0]
+    #             name = os.path.basename(img_path).replace('_' + tile_name, '')
+    #             if id_nn == 0:
+    #                 feature_img_name = name
+    #                 knn_list = []
+    #             else:
+    #                 l2_dist = l2_knn[feature_id][id_nn]
+    #                 tuple = (name, l2_dist)
+    #                 knn_list.append(tuple)
+    #         assert len(knn_list) == k
+    #         doAdd = True
+    #         if feature_img_name in tile_to_10nn:
+    #             # special case because of duplicate images in COCO dataset (e.g. 000000000927.jpg und 000000341448.jpg)
+    #             assert knn[feature_id][0] == knn[knn[feature_id][1]][0] \
+    #                    and knn[feature_id][1] == knn[knn[feature_id][1]][1], '\n%d\n%s\n%s\n%s' % (feature_id, str(knn[feature_id]), str(l2_knn[feature_id]), str(knn))
+    #             id_into_dataset = cluster_feature_ids[knn[feature_id][1]]
+    #             img_path = dataset.imgs[id_into_dataset][0]
+    #             name_repl = os.path.basename(img_path).replace('_' + tile_name, '')
+    #             print('duplicate images detected, replacing %s with %s...' % (feature_img_name, name_repl))
+    #             feature_img_name = name_repl
+    #             if feature_img_name in tile_to_10nn:
+    #                 print( '%s already in tile_to_10nn (size: %d, featured_id: %d)' % (feature_img_name, len(tile_to_10nn), feature_id))
+    #                 doAdd = False
+    #
+    #         if doAdd:
+    #             assert feature_img_name not in tile_to_10nn, '%s already in tile_to_10nn (size: %d, featured_id: %d)' % \
+    #                                                      (feature_img_name, len(tile_to_10nn), feature_id)
+    #             tile_to_10nn[feature_img_name] = knn_list
+    #         else:
+    #             print('skip feature %s altogether...' % feature_img_name)
+    #             doAdd = True
+    #
+    #     print(('processing cluster %d <-- [{0:.2f}s]' % (cluster_index + 1)).format(time.time() - start))
+    #
+    #
+    # if len(tile_to_10nn) != len(dataset.imgs):
+    #     # assert len(tile_to_10nn) == len(dataset.imgs), '%s vs. %s' % (str(len(tile_to_10nn)), str(len(dataset.imgs)))
+    #     print('len(tile_to_10nn) != len(dataset.imgs): %s vs. %s' % (str(len(tile_to_10nn)), str(len(dataset.imgs))))
+    #     keys = {}
+    #     for img_name in tile_to_10nn.keys():
+    #         keys[img_name] = 1
+    #     for img_path in dataset.imgs:
+    #         name = os.path.basename(img_path[0]).replace('_' + tile_name, '')
+    #         if name in keys:
+    #             del keys[name]
+    #         else:
+    #             print('%s not in tile_to_10nn..' % name)
+    #     print('state of keys after iteration:')
+    #     print(keys)
+    #
+    # out_dir = os.path.join(args.exp, tile_name)
+    # file_out = os.path.join(out_dir, tile_name + "_" + args.knn + "nn.obj")
+    # print('pickle map object to \'%s\'...' % file_out)
+    # handle = open(file_out, "wb")
+    # pickle.dump(tile_to_10nn, handle)
+    # handle.close()
 
     print('done.')
     ########################################################################
