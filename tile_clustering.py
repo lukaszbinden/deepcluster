@@ -23,6 +23,7 @@ import torchvision.datasets as datasets
 
 import clustering
 import models
+import traceback
 from util import AverageMeter, Logger, UnifLabelSampler
 
 
@@ -61,6 +62,7 @@ parser.add_argument('--checkpoints', type=int, default=25000,
                     help='how many iterations between two checkpoints (default: 25000)')
 parser.add_argument('--seed', type=int, default=31, help='random seed (default: 31)')
 parser.add_argument('--exp', type=str, default='', help='path to exp folder')
+parser.add_argument('--features', type=str, default='', help='path to precomputed features')
 parser.add_argument('--verbose', action='store_true', help='chatty')
 
 
@@ -146,9 +148,23 @@ def main():
     ######################################################################
 
     # get the features for the whole dataset
+    # if args.features and os.path.exists(args.features):
+    #     handle = open(args.features, "rb")
+    #     print('load features from filesystem...: %s' % args.features)
+    #     features = pickle.load(handle)
+    #     print('... loaded.')
+    #     handle.close()
+    # else:
     print('compute_features...')
     features = compute_features(dataloader, model, len(dataset))
+    # if args.features and args.features is not "":
+    #     print('dump features to disc...: %s' % args.features)
+    #     handle = open(args.features, "wb")
+    #     pickle.dump(features, handle)
+    #     handle.close()
+    #     print('... done')
     print('...compute_features.')
+
     print('features.shape.:', features.shape)
 
     # cluster the features
@@ -206,6 +222,7 @@ def main():
                     tuple = (name, l2_dist)
                     knn_list.append(tuple)
             assert len(knn_list) == k
+            doAdd = True
             if feature_img_name in tile_to_10nn:
                 # special case because of duplicate images in COCO dataset (e.g. 000000000927.jpg und 000000341448.jpg)
                 assert knn[feature_id][0] == knn[knn[feature_id][1]][0] \
@@ -215,12 +232,34 @@ def main():
                 name_repl = os.path.basename(img_path).replace('_' + tile_name, '')
                 print('duplicate images detected, replacing %s with %s...' % (feature_img_name, name_repl))
                 feature_img_name = name_repl
-            assert feature_img_name not in tile_to_10nn, '%s already in tile_to_10nn (size: %d, featured_id: %d)' % \
+                if feature_img_name in tile_to_10nn:
+                    print( '%s already in tile_to_10nn (size: %d, featured_id: %d)' % (feature_img_name, len(tile_to_10nn), feature_id)) 
+                    doAdd = False
+
+            if doAdd:
+                assert feature_img_name not in tile_to_10nn, '%s already in tile_to_10nn (size: %d, featured_id: %d)' % \
                                                          (feature_img_name, len(tile_to_10nn), feature_id)
-            tile_to_10nn[feature_img_name] = knn_list
+                tile_to_10nn[feature_img_name] = knn_list
+            else:
+                print('skip feature %s altogether...' % feature_img_name)
+                doAdd = True
+
         print(('processing cluster %d <-- [{0:.2f}s]' % (cluster_index + 1)).format(time.time() - start))
 
-    assert len(tile_to_10nn) == len(dataset.imgs)
+    if len(tile_to_10nn) != len(dataset.imgs):
+        # assert len(tile_to_10nn) == len(dataset.imgs), '%s vs. %s' % (str(len(tile_to_10nn)), str(len(dataset.imgs)))
+        print('len(tile_to_10nn) != len(dataset.imgs): %s vs. %s' % (str(len(tile_to_10nn)), str(len(dataset.imgs))))
+        keys = {}
+        for img_name in tile_to_10nn.keys():
+            keys[img_name] = 1
+        for img_path in dataset.imgs:
+            name = os.path.basename(img_path[0]).replace('_' + tile_name, '')
+            if name in keys:
+                del keys[name]
+            else:
+                print('%s not in tile_to_10nn..' % name)
+        print('state of keys after iteration:')
+        print(keys)
 
     out_dir = os.path.join(args.exp, tile_name)
     file_out = os.path.join(out_dir, tile_name + "_" + args.knn + "nn.obj")
@@ -275,4 +314,11 @@ def compute_features(dataloader, model, N):
 
 
 if __name__ == '__main__':
-    main()
+    try:
+    	main()
+    except Exception as e:
+        print(e)
+        tb = traceback.format_exc()
+        print(tb)
+
+
